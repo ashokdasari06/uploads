@@ -1,25 +1,48 @@
 import boto3
+import time
 from datetime import datetime, timezone
 
 iam = boto3.client("iam")
 
-def get_all_roles_last_used():
-    roles_with_usage = []
+def wait_for_job(job_id):
+    while True:
+        result = iam.get_service_last_accessed_details(JobId=job_id)
+        if result["JobStatus"] == "COMPLETED":
+            return result
+        time.sleep(1)
 
+def get_roles_latest_service_access():
     paginator = iam.get_paginator("list_roles")
+    summary = []
+
     for page in paginator.paginate():
         for role in page["Roles"]:
             role_name = role["RoleName"]
-            last_used_info = role.get("RoleLastUsed", {})
-            last_used_date = last_used_info.get("LastUsedDate")
+            role_arn = role["Arn"]
 
-            if last_used_date:
-                days_ago = (datetime.now(timezone.utc) - last_used_date).days
-                roles_with_usage.append((role_name, last_used_date.strftime('%Y-%m-%d'), days_ago))
+            # Start job
+            job = iam.generate_service_last_accessed_details(Arn=role_arn)
+            job_id = job["JobId"]
+
+            # Wait for job to complete
+            result = wait_for_job(job_id)
+            services = result["ServicesLastAccessed"]
+
+            # Find the most recently accessed service
+            last_used_info = [
+                (svc["LastAuthenticated"], svc["ServiceName"])
+                for svc in services if "LastAuthenticated" in svc
+            ]
+
+            if last_used_info:
+                most_recent, service_name = max(last_used_info)
+                days_ago = (datetime.now(timezone.utc) - most_recent).days
+                summary.append((role_name, role_arn, most_recent.strftime("%Y-%m-%d"), days_ago))
             else:
-                roles_with_usage.append((role_name, "Never Used", "N/A"))
+                summary.append((role_name, role_arn, "Never Accessed", "N/A"))
 
-    return sorted(roles_with_usage, key=lambda x: (x[2] if isinstance(x[2], int) else -1), reverse=True)
+    return summary
 
-for role, last_used, days in get_all_roles_last_used():
-    print(f"{role:50} | Last Used: {last_used:15} | Days Ago: {days}")
+# Output
+for role_name, arn, last_accessed, days in get_roles_latest_service_access():
+    print(f"{role_name:40} | {arn:80} | Last Accessed: {last_accessed:12} | Days Ago: {days}")
