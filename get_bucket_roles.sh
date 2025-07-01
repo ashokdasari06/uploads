@@ -3,18 +3,19 @@
 BUCKET_NAME="my-target-bucket"
 BUCKET_ARN="arn:aws:s3:::${BUCKET_NAME}"
 
-# Function to check if a policy has non-wildcard S3 access to the bucket
+# Function to check policy for specific bucket access (non-wildcard)
 check_policy_for_bucket() {
   POLICY_DOC="$1"
   echo "$POLICY_DOC" | jq -r --arg BUCKET_ARN "$BUCKET_ARN" '
-    .Statement[]? 
-    | select(.Action != null) 
-    | select((.Action | tostring | contains("s3:*") | not)) 
-    | select(.Resource != null) 
-    | select(
-        (.Resource | type == "string" and (. | contains($BUCKET_ARN))) or
-        (.Resource | type == "array" and any(.[]; contains($BUCKET_ARN)))
-      )
+    def normalize(x): if x|type == "array" then x else [x] end;
+    .Statement as $stmt |
+    normalize($stmt)[] |
+    select(.Action and (.Action | tostring | contains("s3:*") | not)) |
+    select(.Resource != null) |
+    select(
+      (.Resource | type == "string" and (. | contains($BUCKET_ARN))) or
+      (.Resource | type == "array" and any(.[]; contains($BUCKET_ARN)))
+    )
   '
 }
 
