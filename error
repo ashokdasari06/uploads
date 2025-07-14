@@ -1,0 +1,29 @@
+[
+{
+"Enity_Type":
+"InvalidSignatureException"
+ 
+"Entity_Message":
+"The request signature we calculated does not match the signature you provided. Check your AWS Secret Access Key and signing method. Consult the service documentation for details."
+ 
+"Error":
+"Failed to execute the request, or the endpoint responded an error"
+ 
+"Resonse_Entity":
+"[UnrepeatableEntity] {Content-Type: application/x-amz-json-1.1,Content-Length: 229,Chunked: false}"
+ 
+"Response_Status":
+"HTTP/1.1 400 Bad Request"
+ 
+"Debug_Response":{
+"Date":
+"2025-07-14T18:55:49.688+0000"
+ 
+}
+"Debug_Response_Status":[
+ 
+"35df7644-4c1c-452b-b0cd-8094ee1795a9"
+ 
+]
+}
+]
