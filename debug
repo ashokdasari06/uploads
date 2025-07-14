@@ -1,0 +1,125 @@
+// === Required Imports ===
+load("nashorn:mozilla_compat.js");
+ 
+importPackage(com.snaplogic.scripting.language);
+importPackage(java.util);
+ 
+importClass(javax.crypto.Mac);
+importClass(javax.crypto.spec.SecretKeySpec);
+importClass(org.apache.commons.codec.digest.DigestUtils);
+importClass(javax.xml.bind.DatatypeConverter);
+ 
+// === Implementation Object ===
+var impl = {
+    input: input,
+    output: output,
+    error: error,
+    log: log,
+ 
+    execute: function () {
+        var accessKey = '';               // AWS Access Key
+        var secretKey = '';        // AWS Secret Key
+        var securitytoken = '';
+        var region = 'us-east-1';
+        var service = 'events';
+        var host = service + '.' + region + '.amazonaws.com';
+        var endpoint = 'https://' + host;
+        var canonical_uri = '/';
+        var canonical_querystring = '';
+        var method = 'POST';
+        var algorithm = 'AWS4-HMAC-SHA256';
+        var eventBusName = 'case-mgmt-events-uat';
+ 
+        while (impl.input.hasNext()) {
+            var doc = impl.input.next();
+ 
+            var payload = JSON.stringify({
+                "Entries": [{
+                    "Source": "snowflake",
+                    "DetailType": "snowflakeEvent",
+                    "Detail": JSON.stringify(doc),
+                    "EventBusName": eventBusName
+                }]
+            });
+ 
+            var dateStamp = impl.getUTCDate();
+            var amzDate = impl.getUTCTimestamp();
+            var payload_hash = DigestUtils.sha256Hex(payload);
+ 
+            // === Canonical Request ===
+            var canonical_headers = 'host:' + host + '\n' +
+                'x-amz-date:' + amzDate + '\n' +
+                'x-amz-content-sha256:' + payload_hash + '\n';
+            var signed_headers = 'content-length;content-type;host;x-amz-content-sha256;x-amz-date;x-amz-security-token';
+            //'host;x-amz-date;x-amz-content-sha256';
+ 
+            var canonical_request = method + '\n' +
+                canonical_uri + '\n' +
+                canonical_querystring + '\n' +
+                canonical_headers + '\n' +
+                signed_headers + '\n' +
+                payload_hash;
+ 
+            var credential_scope = dateStamp + '/' + region + '/' + service + '/aws4_request';
+            var string_to_sign = algorithm + '\n' + amzDate + '\n' + credential_scope + '\n' +
+                DigestUtils.sha256Hex(canonical_request);
+ 
+            var signing_key = impl.getSigningKey(secretKey, dateStamp, region, service);
+            var signature = impl.toHex(impl.sign(string_to_sign, signing_key));
+ 
+            var authorization_header = algorithm + ' Credential=' + accessKey + '/' + credential_scope +
+                ', SignedHeaders=' + signed_headers + ', Signature=' + signature;
+ 
+            // === Output Headers and Payload ===
+            var result = new java.util.HashMap();
+            result.put("Authorization", authorization_header);
+            result.put("x-amz-date", amzDate);
+            result.put("x-amz-content-sha256", payload_hash);
+            result.put("Content-Type", "application/x-amz-json-1.1");
+            result.put("x-amz-target", "AWSEvents.PutEvents");
+            result.put("url", endpoint);
+            result.put("payload", payload);
+ 
+            impl.output.write(doc, result);
+        }
+ 
+        impl.log.info("EventBridge SigV4 signature generation completed.");
+    },
+ 
+    // === Utility Functions ===
+    getUTCDate: function () {
+        var d = new Date();
+        return d.getUTCFullYear() +
+            ('0' + (d.getUTCMonth() + 1)).slice(-2) +
+            ('0' + d.getUTCDate()).slice(-2);
+    },
+ 
+    getUTCTimestamp: function () {
+        var d = new Date();
+        return impl.getUTCDate() + 'T' +
+            ('0' + d.getUTCHours()).slice(-2) +
+            ('0' + d.getUTCMinutes()).slice(-2) +
+            ('0' + d.getUTCSeconds()).slice(-2) + 'Z';
+    },
+ 
+    sign: function (data, key) {
+        var mac = Mac.getInstance("HmacSHA256");
+        mac.init(new SecretKeySpec(key, "HmacSHA256"));
+        return mac.doFinal(data.getBytes("UTF8"));
+    },
+ 
+    getSigningKey: function (secretKey, dateStamp, region, service) {
+        var kDate = impl.sign(dateStamp, ("AWS4" + secretKey).getBytes("UTF8"));
+        var kRegion = impl.sign(region, kDate);
+        var kService = impl.sign(service, kRegion);
+        var kSigning = impl.sign("aws4_request", kService);
+        return kSigning;
+    },
+ 
+    toHex: function (byteArray) {
+        return DatatypeConverter.printHexBinary(byteArray).toLowerCase();
+    }
+};
+ 
+// === Register Hook ===
+var hook = new ScriptHook(impl);
