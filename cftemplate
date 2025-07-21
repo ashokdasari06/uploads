@@ -1,0 +1,44 @@
+    "RunbookStackNoRoles": {
+      "Type": "AWS::CloudFormation::Stack",
+      "Properties": {
+        "Parameters": {
+          "WaitProviderServiceToken": {
+            "Fn::GetAtt": [
+              "WaitProviderFunction3D90ED36",
+              "Arn"
+            ]
+          }
+        },
+        "TemplateURL": {
+          "Fn::Join": [
+            "",
+            [
+              "https://",
+              {
+                "Fn::FindInMap": [
+                  "NestedStackFactorySourceCodeA11A36A7",
+                  "General",
+                  "S3Bucket"
+                ]
+              },
+              "-reference.s3.amazonaws.com/",
+              {
+                "Fn::FindInMap": [
+                  "NestedStackFactorySourceCodeA11A36A7",
+                  "General",
+                  "KeyPrefix"
+                ]
+              },
+              "/aws-sharr-remediations.template"
+            ]
+          ]
+        }
+      },
+      "UpdateReplacePolicy": "Delete",
+      "DeletionPolicy": "Delete",
+      "Metadata": {
+        "aws:cdk:path": "MemberStack/RunbookStackNoRoles.NestedStack/RunbookStackNoRoles.NestedStackResource",
+        "aws:asset:path": "MemberStackRunbookStackNoRoles129D4B44.nested.template.json",
+        "aws:asset:property": "TemplateURL"
+      }
+    },
