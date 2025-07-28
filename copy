@@ -1,0 +1,7 @@
+filter_json=$(cat <<EOF
+{
+  "eventTypeCategories": ["scheduledChange"],
+  "accounts": [$(echo $account_ids | sed 's/[^ ]\+/"&"/g' | paste -sd, -)]
+}
+EOF
+)
