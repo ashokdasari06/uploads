@@ -27,3 +27,13 @@ echo "$EVENTS" | jq -c '.[]' | while read -r event; do
   echo "$ENTITIES" | jq -r --arg region "$REGION" --arg code "$EVENT_CODE" \
     '.[] | "\(.accountId),\($region),\($code),\(.entityValue)"'
 done
+
+EVENTS=$(aws health describe-events-for-organization \
+  --filter '{"eventTypeCategories":["scheduledChange"],"eventStatusCodes":["open", "upcoming"]}' \
+  --region us-east-1 \
+  --query 'events[*].{arn:arn,service:service,region:region,eventTypeCode:eventTypeCode}' \
+  --output json)
+
+aws health describe-affected-accounts-for-organization --event-arn arn:aws:health:us-east-1::event/CLOUDSHELL/AWS_CLOUDSHELL_PERSISTENCE_EXPIRING/AWS_CLOUDSHELL_PERSISTENCE_EXPIRING_v20220208_767397695027_us-east-1_3-8-2025 --query affectedAccounts --output text
+
+aws health describe-affected-entities-for-organization --organization-entity-filters '[{"eventArn":"arn:aws:health:us-east-1::event/CLOUDSHELL/AWS_CLOUDSHELL_PERSISTENCE_EXPIRING/AWS_CLOUDSHELL_PERSISTENCE_EXPIRING_v20220208_767397695027_us-east-1_3-8-2025","awsAccountId":"767397695027"}]'
