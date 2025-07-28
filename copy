@@ -1,7 +1,29 @@
-filter_json=$(cat <<EOF
-{
-  "eventTypeCategories": ["scheduledChange"],
-  "accounts": [$(echo $account_ids | sed 's/[^ ]\+/"&"/g' | paste -sd, -)]
-}
-EOF
-)
+#!/bin/bash
+
+# Step 1: Get all scheduled change events for the org
+EVENTS=$(aws health describe-events-for-organization \
+  --filter '{"eventTypeCategories":["scheduledChange"]}' \
+  --region us-east-1 \
+  --query 'events[*].{arn:eventArn,region:region,eventTypeCode:eventTypeCode}' \
+  --output json)
+
+# Step 2: Start CSV output
+echo "account_id,region,event_type_code,entity_value"
+
+# Step 3: Loop through each event and get affected entities
+echo "$EVENTS" | jq -c '.[]' | while read -r event; do
+  ARN=$(echo "$event" | jq -r '.arn')
+  REGION=$(echo "$event" | jq -r '.region')
+  EVENT_CODE=$(echo "$event" | jq -r '.eventTypeCode')
+
+  # Step 4: Get affected entities per event
+  ENTITIES=$(aws health describe-affected-entities-for-organization \
+    --organization-entity-filters "[{\"eventArn\": \"$ARN\"}]" \
+    --region us-east-1 \
+    --query 'entities[*].{accountId:awsAccountId,entityValue:entityValue}' \
+    --output json)
+
+  # Step 5: Print results in CSV
+  echo "$ENTITIES" | jq -r --arg region "$REGION" --arg code "$EVENT_CODE" \
+    '.[] | "\(.accountId),\($region),\($code),\(.entityValue)"'
+done
