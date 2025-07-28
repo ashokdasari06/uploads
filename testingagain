@@ -1,0 +1,47 @@
+#!/bin/bash
+
+# CSV header
+echo "account_id,region,event_type_code,entity_value,event_description"
+
+# Step 1: Get all scheduled events (open/upcoming)
+EVENTS=$(aws health describe-events-for-organization \
+  --filter '{"eventTypeCategories":["scheduledChange"],"eventStatusCodes":["open", "upcoming"]}' \
+  --region us-east-1 \
+  --query 'events[*].{arn:arn,region:region,eventTypeCode:eventTypeCode}' \
+  --output json)
+
+# Step 2: Iterate through each event
+echo "$EVENTS" | jq -c '.[]' | while read -r event; do
+  ARN=$(echo "$event" | jq -r '.arn')
+  REGION=$(echo "$event" | jq -r '.region')
+  EVENT_CODE=$(echo "$event" | jq -r '.eventTypeCode')
+
+  # Get description for the event
+  DESCRIPTION=$(aws health describe-event-details-for-organization \
+    --organization-event-detail-filters "[{\"eventArn\": \"$ARN\"}]" \
+    --region us-east-1 \
+    --query 'successfulSet[0].eventDescription.latestDescription' \
+    --output text 2>/dev/null)
+
+  # Clean description for CSV
+  SAFE_DESCRIPTION=$(echo "$DESCRIPTION" | tr '\n' ' ' | sed 's/"/""/g')
+
+  # Get list of affected accounts for this event
+  ACCOUNT_IDS=$(aws health describe-affected-accounts-for-organization \
+    --event-arn "$ARN" \
+    --region us-east-1 \
+    --query 'affectedAccounts' \
+    --output text)
+
+  # Step 3: For each affected account, get affected entities
+  for ACCOUNT_ID in $ACCOUNT_IDS; do
+    ENTITIES=$(aws health describe-affected-entities-for-organization \
+      --organization-entity-filters "[{\"eventArn\":\"$ARN\",\"awsAccountId\":\"$ACCOUNT_ID\"}]" \
+      --region us-east-1 \
+      --query 'entities[*].{entityValue:entityValue}' \
+      --output json)
+
+    echo "$ENTITIES" | jq -r --arg acc "$ACCOUNT_ID" --arg reg "$REGION" --arg code "$EVENT_CODE" --arg desc "$SAFE_DESCRIPTION" \
+      '.[] | "\($acc),\($reg),\($code),\(.entityValue),\"\($desc)\""'
+  done
+done
