@@ -1,108 +1,85 @@
-const crypto = require('crypto');
-const https = require('https');
-
-// ==== Replace with your AWS credentials ====
-const accessKeyId = 'YOUR_ACCESS_KEY_ID';
-const secretAccessKey = 'YOUR_SECRET_ACCESS_KEY';
-const sessionToken = 'YOUR_SESSION_TOKEN'; // optional, for STS
-// ==========================================
-
-const service = 's3';
-const region = 'us-east-1';
-const method = 'GET';
-const host = 's3.amazonaws.com';
-const endpoint = `https://${host}/`;
-
-const now = new Date();
-const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '') + 'Z'; // yyyyMMdd'T'HHmmss'Z'
-const dateStamp = amzDate.slice(0, 8); // yyyyMMdd
-
-const canonicalUri = '/';
-const canonicalQuerystring = '';
-const canonicalHeaders = `host:${host}\n` + `x-amz-date:${amzDate}\n`;
-const signedHeaders = 'host;x-amz-date';
-const payloadHash = crypto.createHash('sha256').update('').digest('hex');
-
-const canonicalRequest = [
-  method,
-  canonicalUri,
-  canonicalQuerystring,
-  canonicalHeaders,
-  signedHeaders,
-  payloadHash
-].join('\n');
-
-const algorithm = 'AWS4-HMAC-SHA256';
-const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
-const stringToSign = [
-  algorithm,
-  amzDate,
-  credentialScope,
-  crypto.createHash('sha256').update(canonicalRequest).digest('hex')
-].join('\n');
-
-function hmac(key, data) {
-  return crypto.createHmac('sha256', key).update(data).digest();
-}
-
-function getSignatureKey(key, dateStamp, regionName, serviceName) {
-  const kDate = hmac(Buffer.from('AWS4' + key, 'utf8'), dateStamp);
-  const kRegion = hmac(kDate, regionName);
-  const kService = hmac(kRegion, serviceName);
-  return hmac(kService, 'aws4_request');
-}
-
-const signingKey = getSignatureKey(secretAccessKey, dateStamp, region, service);
-const signature = crypto.createHmac('sha256', signingKey).update(stringToSign).digest('hex');
-
-const authorizationHeader = `${algorithm} Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
-
-// === Build request headers ===
-const headers = {
-  'x-amz-date': amzDate,
-  'Authorization': authorizationHeader
-};
-
-if (sessionToken) {
-  headers['x-amz-security-token'] = sessionToken;
-}
-
-console.log("🔐 Use these headers in SnapLogic HTTP Client Snap:");
-for (const [key, value] of Object.entries(headers)) {
-  console.log(`${key}: ${value}`);
-}
-
-// === Optional: make the request directly ===
-const options = {
-  hostname: host,
-  path: '/',
-  method: 'GET',
-  headers: headers
-};
-
-const req = https.request(options, res => {
-  console.log(`Status: ${res.statusCode}`);
-  res.on('data', d => process.stdout.write(d));
-});
-req.on('error', error => console.error(error));
-req.end();
-
-import boto3
+import datetime
+import hashlib
+import hmac
 import requests
-from botocore.auth import SigV4Auth
-from botocore.awsrequest import AWSRequest
+from urllib.parse import urlparse
 
-session = boto3.Session()
-credentials = session.get_credentials().get_frozen_credentials()
+# Replace these with your credentials
+access_key = 'YOUR_ACCESS_KEY_ID'
+secret_key = 'YOUR_SECRET_ACCESS_KEY'
+session_token = 'YOUR_SESSION_TOKEN'  # Only needed if using temporary credentials
 
-request = AWSRequest(
-    method='GET',
-    url='https://s3.amazonaws.com/',
-    headers={'Host': 's3.amazonaws.com'}
+region = 'us-east-1'
+service = 's3'
+host = 's3.amazonaws.com'
+endpoint = f'https://{host}/'
+
+# Create a date for headers and the credential string
+t = datetime.datetime.utcnow()
+amz_date = t.strftime('%Y%m%dT%H%M%SZ')
+date_stamp = t.strftime('%Y%m%d')  # Date w/o time, used in credential scope
+
+# ************* TASK 1: CREATE A CANONICAL REQUEST *************
+method = 'GET'
+canonical_uri = '/'
+canonical_querystring = ''
+canonical_headers = f'host:{host}\n' + f'x-amz-date:{amz_date}\n'
+signed_headers = 'host;x-amz-date'
+payload_hash = hashlib.sha256(('').encode('utf-8')).hexdigest()
+canonical_request = '\n'.join([
+    method,
+    canonical_uri,
+    canonical_querystring,
+    canonical_headers,
+    signed_headers,
+    payload_hash
+])
+
+# ************* TASK 2: CREATE THE STRING TO SIGN *************
+algorithm = 'AWS4-HMAC-SHA256'
+credential_scope = f'{date_stamp}/{region}/{service}/aws4_request'
+string_to_sign = '\n'.join([
+    algorithm,
+    amz_date,
+    credential_scope,
+    hashlib.sha256(canonical_request.encode('utf-8')).hexdigest()
+])
+
+# ************* TASK 3: CALCULATE THE SIGNATURE *************
+def sign(key, msg):
+    return hmac.new(key, msg.encode('utf-8'), hashlib.sha256).digest()
+
+def get_signature_key(key, date_stamp, region_name, service_name):
+    k_date = sign(('AWS4' + key).encode('utf-8'), date_stamp)
+    k_region = sign(k_date, region_name)
+    k_service = sign(k_region, service_name)
+    k_signing = sign(k_service, 'aws4_request')
+    return k_signing
+
+signing_key = get_signature_key(secret_key, date_stamp, region, service)
+signature = hmac.new(signing_key, string_to_sign.encode('utf-8'), hashlib.sha256).hexdigest()
+
+# ************* TASK 4: ADD SIGNING INFORMATION TO THE REQUEST *************
+authorization_header = (
+    f'{algorithm} Credential={access_key}/{credential_scope}, '
+    f'SignedHeaders={signed_headers}, Signature={signature}'
 )
-SigV4Auth(credentials, 's3', 'us-east-1').add_auth(request)
 
-print("🔐 Headers to use in SnapLogic HTTP Client:")
-for k, v in request.headers.items():
+# Build headers
+headers = {
+    'x-amz-date': amz_date,
+    'Authorization': authorization_header
+}
+
+# Add session token if using STS
+if session_token:
+    headers['x-amz-security-token'] = session_token
+
+# Print headers for use in SnapLogic
+print("Paste the following headers into SnapLogic HTTP Client Snap:")
+for k, v in headers.items():
     print(f"{k}: {v}")
 
+# (Optional) Execute the request to test
+# response = requests.get(endpoint, headers=headers)
+# print(response.status_code, response.text)
