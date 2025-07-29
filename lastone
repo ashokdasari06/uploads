@@ -1,0 +1,101 @@
+// === Required Imports ===
+load("nashorn:mozilla_compat.js");
+
+importPackage(com.snaplogic.scripting.language);
+importPackage(java.util);
+
+importClass(javax.crypto.Mac);
+importClass(javax.crypto.spec.SecretKeySpec);
+importClass(org.apache.commons.codec.digest.DigestUtils);
+importClass(javax.xml.bind.DatatypeConverter);
+
+
+var impl = {
+    input: input,
+    output: output,
+    error: error,
+    log: log,
+
+    execute: function () {
+        // Replace these with your AWS credentials
+        var accessKey = '';
+        var secretKey = '';
+        // var sessionToken = 'YOUR_SESSION_TOKEN'; // Uncomment if using temporary credentials
+
+        var region = 'us-east-1';
+        var service = 's3';
+        var host = 's3.amazonaws.com';
+
+        // Get date/time in required formats
+        var now = new Date();
+        var amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '') + 'Z'; // YYYYMMDD'T'HHMMSS'Z'
+        var dateStamp = amzDate.substring(0, 8); // YYYYMMDD
+
+        // Task 1: Create Canonical Request
+        var method = 'GET';
+        var canonicalUri = '/';
+        var canonicalQuerystring = '';
+        var canonicalHeaders = 'host:' + host + '\n' + 'x-amz-date:' + amzDate + '\n';
+        var signedHeaders = 'host;x-amz-date';
+
+        // Use CryptoJS for hashing and HMAC (SnapLogic includes CryptoJS)
+        var payloadHash = DigestUtils.sha256Hex('')
+
+        var canonicalRequest = method + '\n' +
+            canonicalUri + '\n' +
+            canonicalQuerystring + '\n' +
+            canonicalHeaders + '\n' +
+            signedHeaders + '\n' +
+            payloadHash;
+
+        // Task 2: Create String to Sign
+        var algorithm = 'AWS4-HMAC-SHA256';
+        var credentialScope = dateStamp + '/' + region + '/' + service + '/aws4_request';
+        var stringToSign = algorithm + '\n' +
+            amzDate + '\n' +
+            credentialScope + '\n' +
+            DigestUtils.sha256Hex(canonicalRequest);
+
+        var signingKey = impl.getSigningKey(secretKey, dateStamp, region, service);
+        var signature = impl.toHex(impl.sign(stringToSign, signingKey));
+
+        // Task 4: Build Authorization Header
+        var authorization_header = algorithm + ' ' +
+            'Credential=' + accessKey + '/' + credentialScope + ', ' +
+            'SignedHeaders=' + signedHeaders + ', ' +
+            'Signature=' + signature;
+
+        var result = new java.util.HashMap();
+        result.put("Authorization", authorization_header);
+        result.put("x-amz-date", amzDate);
+        //impl.output.write(doc, result);
+        // Uncomment if you use session token
+        // if (sessionToken) {
+        //    headers['x-amz-security-token'] = sessionToken;
+        // }
+
+        // Output headers to pipeline for use downstream (e.g. HTTP Client Snap)
+        //output = headers;
+    },
+
+    sign: function (data, key) {
+        var mac = Mac.getInstance("HmacSHA256");
+        mac.init(new SecretKeySpec(key, "HmacSHA256"));
+        return mac.doFinal(data.getBytes("UTF8"));
+    },
+
+    getSigningKey: function (secretKey, dateStamp, region, service) {
+        var kDate = impl.sign(dateStamp, ("AWS4" + secretKey).getBytes("UTF8"));
+        var kRegion = impl.sign(region, kDate);
+        var kService = impl.sign(service, kRegion);
+        var kSigning = impl.sign("aws4_request", kService);
+        return kSigning;
+    },
+
+    toHex: function (byteArray) {
+        return DatatypeConverter.printHexBinary(byteArray).toLowerCase();
+    }
+}
+
+// === Register Hook ===
+var hook = new ScriptHook(impl);
