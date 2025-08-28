@@ -1,0 +1,36 @@
+locals {
+  more_regions = ["us-east-2", "us-west-2", "ap-south-1"]
+}
+
+provider "aws" {
+  alias = "us-east-2"
+  region = "us-east-2"
+}
+
+provider "aws" {
+  alias = "us-west-2"
+  region = "us-west-2"
+}
+
+provider "aws" {
+  alias = "ap-south-1"
+  region = "ap-south-1"
+}
+
+resource "aws_ebs_encryption_by_default" "ebs_encrypt_us_east_1" {
+  enabled = true
+}
+
+resource "aws_ebs_encryption_by_default" "enabled_regions" {
+  for_each = toset(local.more_regions)
+  provider = aws.each.value
+  enabled = true
+}
+
+Error: Invalid provider configuration reference
+
+  on main.tf line 41, in resource "aws_ebs_encryption_by_default" "enabled_regions":
+  41:   provider = aws.each.value
+
+The provider argument requires a provider type name, optionally followed by a
+period and then a configuration alias.
