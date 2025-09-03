@@ -1,0 +1,86 @@
+{
+    "eventVersion": "1.11",
+    "userIdentity": {
+        "type": "AssumedRole",
+        "principalId": "AROA446TEIVWBCYF7VOAT:lonnie.noland@xpanse.com",
+        "arn": "arn:aws:sts::886816654700:assumed-role/AWSReservedSSO_DesktopEngineer_WorkSpaceService_4c97893a27fe1981/lonnie.noland@xpanse.com",
+        "accountId": "886816654700",
+        "accessKeyId": "ASIA446TEIVWK4LSDSBZ",
+        "sessionContext": {
+            "sessionIssuer": {
+                "type": "Role",
+                "principalId": "AROA446TEIVWBCYF7VOAT",
+                "arn": "arn:aws:iam::886816654700:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_DesktopEngineer_WorkSpaceService_4c97893a27fe1981",
+                "accountId": "886816654700",
+                "userName": "AWSReservedSSO_DesktopEngineer_WorkSpaceService_4c97893a27fe1981"
+            },
+            "attributes": {
+                "creationDate": "2025-09-03T19:59:33Z",
+                "mfaAuthenticated": "false"
+            }
+        }
+    },
+    "eventTime": "2025-09-03T20:02:45Z",
+    "eventSource": "workspaces.amazonaws.com",
+    "eventName": "CreateWorkspaces",
+    "awsRegion": "us-east-1",
+    "sourceIPAddress": "50.203.205.146",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+    "requestParameters": {
+        "workspaces": [
+            {
+                "rootVolumeEncryptionEnabled": false,
+                "bundleId": "wsb-6gkrxc3bt",
+                "userVolumeEncryptionEnabled": false,
+                "userName": "workspaces.local\\yeshwanth.m",
+                "directoryId": "d-9067812743",
+                "tags": [
+                    {
+                        "value": "Workspaces",
+                        "key": "BusinessAppName"
+                    },
+                    {
+                        "value": "PROD",
+                        "key": "Environment   "
+                    }
+                ],
+                "workspaceProperties": {
+                    "userVolumeSizeGib": 256,
+                    "runningMode": "AUTO_STOP",
+                    "rootVolumeSizeGib": 256,
+                    "runningModeAutoStopTimeoutInMinutes": 60
+                }
+            }
+        ],
+        "requestContext": {
+            "awsAccountId": "886816654700"
+        }
+    },
+    "responseElements": {
+        "pendingRequests": [
+            {
+                "bundleId": "wsb-6gkrxc3bt",
+                "workspaceId": "ws-w0bhsm755",
+                "directoryId": "d-9067812743",
+                "state": "PENDING",
+                "userName": "workspaces.local\\yeshwanth.m",
+                "rootVolumeEncryptionEnabled": false,
+                "userVolumeEncryptionEnabled": false
+            }
+        ],
+        "failedRequests": []
+    },
+    "requestID": "f24cd729-d8a7-43eb-a48c-6fe898b01fca",
+    "eventID": "df87bf61-8729-43b2-9dc4-05e38bb525ab",
+    "readOnly": false,
+    "eventType": "AwsApiCall",
+    "managementEvent": true,
+    "recipientAccountId": "886816654700",
+    "eventCategory": "Management",
+    "tlsDetails": {
+        "tlsVersion": "TLSv1.3",
+        "cipherSuite": "TLS_AES_128_GCM_SHA256",
+        "clientProvidedHostHeader": "workspaces.us-east-1.amazonaws.com"
+    },
+    "sessionCredentialFromConsole": "true"
+}
