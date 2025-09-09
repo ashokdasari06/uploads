@@ -1,0 +1,128 @@
+import boto3
+from email.mime.multipart import MIMEMultipart
+from email.mime.application import MIMEApplication
+from email.mime.text import MIMEText
+import csv
+from datetime import datetime, timezone
+#from tabulate import tabulate
+import time
+
+# Create clients
+ws_client = boto3.client('workspaces', region_name="us-east-1")
+ses_client = boto3.client('ses', region_name="us-east-1")
+ds_client = boto3.client('ds-data', region_name="us-east-1")
+s3_client = boto3.client('s3', region_name="us-east-1")
+SENDER_EMAIL = "CloudEngineers@xpanse.com"
+RECEIVER_EMAIL = "ashok.dasari@xpanse.com"
+SUBJECT = "Action Required: Xpanse Inactive Amazon Workspaces Notification"
+BODY = "Hello,\n\nThe Amazon workspaces in the attached report have not been accessed in the past 60 days.\n\nThese workspaces are scheduled for deletion in 7 days if no activity is detected.\n\nWe will notify the workspace users as well.\n\n\nRegards\nCloudEngineering"
+S3_BUCKET = "xpanse-workspace-audit-reports"
+
+def lambda_handler(event, context):
+    # Get all WorkSpaces in AVAILABLE state
+    workspaces = []
+    # converted_msgs = []
+    paginator = ws_client.get_paginator('describe_workspaces')
+    for page in paginator.paginate():
+        workspaces.extend(page['Workspaces'])
+
+    #available_workspaces = [ws for ws in workspaces if ws['State'] == 'STOPPED']
+    available_workspaces = [ws for ws in workspaces if ws['WorkspaceId'] == 'ws-xd6wjrpyh']
+
+    #print(available_workspaces)
+
+    #Prepare data list
+    results = []
+
+    for ws in available_workspaces:
+        ws_id = ws['WorkspaceId']
+        state = ws['State']
+        username = ws['UserName']
+        running_mode = ws['WorkspaceProperties'].get('RunningMode', 'N/A')
+        ComputeType = ws['WorkspaceProperties'].get('ComputeTypeName')
+        RootVolume = ws['WorkspaceProperties'].get('RootVolumeSizeGib')
+        UserVolume = ws['WorkspaceProperties'].get('UserVolumeSizeGib')
+        ds_response = ds_client.describe_user(DirectoryId='d-9067812743',SAMAccountName=f'{username}')
+        email = ds_response['EmailAddress']
+
+        # Get connection status
+        conn_status = ws_client.describe_workspaces_connection_status(WorkspaceIds=[ws_id])
+        status_info = conn_status['WorkspacesConnectionStatus'][0] if conn_status['WorkspacesConnectionStatus'] else {}
+
+        connection_state = status_info.get('ConnectionState', 'N/A')
+        last_conn_time = status_info.get('LastKnownUserConnectionTimestamp')
+
+        # Calculate days since last login
+        if last_conn_time:
+            now = datetime.now(timezone.utc)
+            delta_days = (now - last_conn_time).days
+            last_conn_str = last_conn_time.strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            delta_days = "N/A"
+            last_conn_str = "Never"
+
+        # Append result row
+        if isinstance(delta_days, int) and delta_days > 500:
+            print(f"{ws_id} was not accessed in the last {delta_days} days.")
+            results.append([
+                ws_id,
+                username,
+                email,
+                state,
+                running_mode,
+                ComputeType,
+                RootVolume,
+                UserVolume,
+                connection_state,
+                last_conn_str,
+                delta_days
+            ])
+        time.sleep(1)
+
+    results.sort(key=lambda x: x[10], reverse=True)
+
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d")
+    csv_filename = f"/tmp/workspaces_audit_report_{timestamp}.csv"
+
+    # Print results as table
+    headers = ["WorkspaceId", "UserName", "EMail", "State", "Mode", "Compute", "Root volume", "User volume", "ConnectionState", "LastLogin", "DaysAgo"]
+    #print(tabulate(results, headers=headers, tablefmt="github"))
+    with open(csv_filename, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(headers)
+        writer.writerows(results)
+
+    print("CSV exported to /tmp/workspaces_audit_report_{timestamp}.csv")
+
+    #s3_key = f"initial_reports/{csv_filename}"
+    s3_client.upload_file(csv_filename, S3_BUCKET, f"initial_reports/{csv_filename.split('/')[-1]}")
+
+    msg = MIMEMultipart()
+    msg["Subject"] = SUBJECT
+    msg["From"] = SENDER_EMAIL
+    msg["To"] = RECEIVER_EMAIL
+    msg.attach(MIMEText(BODY, "plain"))
+
+    with open(csv_filename, "rb") as f:
+        part = MIMEApplication(f.read(), _sutype="csv")
+        part.add_header("Content-Disposition", "attachment", filename={csv_filename})
+        msg.attach(part)
+
+    response = ses_client.send_raw_email(
+        Source=SENDER_EMAIL,
+        Destinations=[RECEIVER_EMAIL],
+        RawMessage={"Data": msg.as_string()}
+        )
+
+
+Response:
+{
+  "errorMessage": "'set' object has no attribute 'encode'",
+  "errorType": "AttributeError",
+  "requestId": "323d6a02-5cf8-4514-a4b1-1f4f64d64c68",
+  "stackTrace": [
+    "  File \"/var/task/lambda_function.py\", line 108, in lambda_handler\n    part.add_header(\"Content-Disposition\", \"attachment\", filename={csv_filename})\n",
+    "  File \"/var/lang/lib/python3.13/email/message.py\", line 576, in add_header\n    parts.append(_formatparam(k.replace('_', '-'), v))\n",
+    "  File \"/var/lang/lib/python3.13/email/message.py\", line 59, in _formatparam\n    value.encode('ascii')\n"
+  ]
+}
