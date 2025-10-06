@@ -1,0 +1,126 @@
+# Automation variables
+$AppID     = Get-AutomationVariable -Name 'appID' 
+$TenantID  = Get-AutomationVariable -Name 'tenantID'
+$AppSecret = Get-AutomationVariable -Name 'appSecret'  
+
+[int32]$expirationDays = 90
+[string]$emailSender = ""
+[string]$emailTo = ""
+
+# --- Functions ---
+
+Function Connect-MSGraphAPI {
+    param ([string]$AppID, [string]$TenantID, [string]$AppSecret)
+    
+    $URI = "https://login.microsoftonline.com/$TenantID/oauth2/v2.0/token"
+    $Body = @{
+        Grant_Type    = "client_credentials"
+        Scope         = "https://graph.microsoft.com/.default"
+        client_Id     = $AppID
+        Client_Secret = $AppSecret
+    }
+    $Response = Invoke-RestMethod -Uri $URI -Method POST -Body $Body
+    return $Response
+}
+
+Function Get-MSGraphRequest {
+    param ([string]$Uri, [string]$AccessToken)
+    
+    $allPages = @()
+    $Params = @{
+        Headers = @{
+            "Authorization" = "Bearer $AccessToken"
+        }
+        Method = "GET"
+        Uri    = $Uri
+    }
+
+    do {
+        $data = Invoke-RestMethod @Params
+        $allPages += $data.value
+        if ($data.'@odata.nextLink') {
+            $Params.Uri = $data.'@odata.nextLink'
+        }
+    } until (!$data.'@odata.nextLink')
+
+    return $allPages
+}
+
+Function Send-MSGraphEmail {
+    param (
+        [string]$Uri,
+        [string]$AccessToken,
+        [string]$To,
+        [string]$Subject = "Enterprise App Certificate Expiration Notice",
+        [string]$Body
+    )
+
+    $headers = @{
+        "Authorization" = "Bearer $AccessToken"
+        "Content-type"  = "application/json"
+    }
+
+    $BodyJson = @"
+{
+   "message": {
+       "subject": "$Subject",
+       "body": {
+           "contentType": "HTML",
+           "content": "$($Body)"
+       },
+       "toRecipients": [
+           {
+               "emailAddress": { "address": "$To" }
+           }
+       ]
+   },
+   "saveToSentItems": "true"
+}
+"@
+
+    Invoke-RestMethod -Method POST -Uri $Uri -Headers $headers -Body $BodyJson
+}
+
+# --- Main Script ---
+
+$tokenResponse = Connect-MSGraphAPI -AppID $AppID -TenantID $TenantID -AppSecret $AppSecret
+$accessToken = $tokenResponse.access_token
+
+# Get all service principals (Enterprise Applications)
+$servicePrincipals = Get-MSGraphRequest -AccessToken $accessToken -Uri "https://graph.microsoft.com/v1.0/servicePrincipals"
+
+$expiringCerts = @()
+
+foreach ($sp in $servicePrincipals) {
+    foreach ($cert in $sp.keyCredentials) {
+        if ($cert.endDateTime -ne $null) {
+            $certExpiryDate = [TimeZoneInfo]::ConvertTimeBySystemTimeZoneId($cert.endDateTime, 'Central Standard Time')
+            $daysUntilExpiration = (New-TimeSpan -Start ([System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTime]::Now, "Central Standard Time")) -End $certExpiryDate).Days
+
+            if ($daysUntilExpiration -le $expirationDays) {
+                $expiringCerts += [PSCustomObject]@{
+                    EnterpriseAppName = $sp.displayName
+                    AppId             = $sp.appId
+                    CertificateName   = $cert.displayName
+                    ExpirationDate    = $certExpiryDate
+                    DaysUntilExpiry   = $daysUntilExpiration
+                }
+            }
+        }
+    }
+}
+
+if ($expiringCerts.Count -gt 0) {
+    Write-Output "Sending email for expiring certificates..."
+    $htmlBody = $expiringCerts |
+        Sort-Object DaysUntilExpiry |
+        Select-Object EnterpriseAppName, AppId, CertificateName, ExpirationDate, DaysUntilExpiry |
+        ConvertTo-Html -Fragment
+
+    Send-MSGraphEmail -Uri "https://graph.microsoft.com/v1.0/users/$emailSender/sendMail" `
+                      -AccessToken $accessToken `
+                      -To $emailTo `
+                      -Body $htmlBody
+} else {
+    Write-Output "No Enterprise Applications with certificates expiring in the next $expirationDays days."
+}
