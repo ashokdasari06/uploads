@@ -1,0 +1,1 @@
+Get-ADComputer -Filter * -SearchBase "OU=workspaces,OU=Computers,OU=xpanseworkspace,DC=workspaces,DC=local" -Properties whenCreated | Select-Object Name, whenCreated > Domain.txt
