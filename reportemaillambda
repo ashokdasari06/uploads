@@ -1,0 +1,69 @@
+import boto3
+import os
+import datetime
+import base64
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email.mime.text import MIMEText
+from email import encoders
+
+s3 = boto3.client("s3")
+ses = boto3.client("ses")
+
+BUCKET = "my-report-bucket"
+SENDER = "no-reply@yourdomain.com"
+RECIPIENT = "recipient@example.com"
+
+
+def lambda_handler(event, context):
+
+    # 1. Determine today's path: YYYY/MM/DD
+    today = datetime.date.today()
+    prefix = f"{today.year}/{today.month:02d}/{today.day:02d}/"
+
+    # 2. List objects in the folder
+    response = s3.list_objects_v2(
+        Bucket=BUCKET,
+        Prefix=prefix
+    )
+
+    if "Contents" not in response:
+        return {"status": "no files for today"}
+
+    # Find first CSV file
+    csv_key = None
+    for item in response["Contents"]:
+        if item["Key"].endswith(".csv"):
+            csv_key = item["Key"]
+            break
+
+    if not csv_key:
+        return {"status": "no csv found"}
+
+    # 3. Download the CSV content
+    csv_obj = s3.get_object(Bucket=BUCKET, Key=csv_key)
+    csv_bytes = csv_obj["Body"].read()
+
+    # 4. Build email with attachment
+    msg = MIMEMultipart()
+    msg["Subject"] = f"Daily Report - {today}"
+    msg["From"] = SENDER
+    msg["To"] = RECIPIENT
+
+    body = MIMEText("Please find the attached daily CSV report.", "plain")
+    msg.attach(body)
+
+    part = MIMEBase("application", "octet-stream")
+    part.set_payload(csv_bytes)
+    encoders.encode_base64(part)
+    part.add_header("Content-Disposition", f"attachment; filename={os.path.basename(csv_key)}")
+    msg.attach(part)
+
+    # 5. Send email via SES
+    ses.send_raw_email(
+        Source=SENDER,
+        Destinations=[RECIPIENT],
+        RawMessage={"Data": msg.as_string()}
+    )
+
+    return {"status": "email sent", "file": csv_key}
