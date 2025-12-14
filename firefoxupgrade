@@ -1,0 +1,18 @@
+$firefoxPath = "C:\Program Files\Mozilla Firefox\firefox.exe"
+
+if (Test-Path $firefoxPath) {
+    Write-Output "Firefox found. Upgrading..."
+
+    $installer = "$env:TEMP\FirefoxInstaller.exe"
+    Invoke-WebRequest `
+      -Uri "https://download.mozilla.org/?product=firefox-latest&os=win64&lang=en-US" `
+      -OutFile $installer
+
+    Start-Process -FilePath $installer -ArgumentList "/S" -Wait
+    Remove-Item $installer
+
+    Write-Output "Firefox upgrade completed."
+}
+else {
+    Write-Output "Firefox not installed."
+}
