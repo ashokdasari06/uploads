@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+TENANT_ID="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+CLIENT_ID="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+CLIENT_SECRET="xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+OUT="azure_apps_with_credentials.csv"
+GRAPH_URL="https://graph.microsoft.com/v1.0/applications"
+
+# -------------------------
+# Get access token
+# -------------------------
+TOKEN=$(curl -s -X POST \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "client_id=$CLIENT_ID" \
+  -d "scope=https://graph.microsoft.com/.default" \
+  -d "client_secret=$CLIENT_SECRET" \
+  -d "grant_type=client_credentials" \
+  "https://login.microsoftonline.com/$TENANT_ID/oauth2/v2.0/token" \
+  | jq -r '.access_token')
+
+> "$OUT"
+HEADER_WRITTEN=false
+NEXT_URL="$GRAPH_URL"
+
+# -------------------------
+# Paging loop
+# -------------------------
+while [[ -n "$NEXT_URL" ]]; do
+  RESP=$(curl -s \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Accept: application/json" \
+    "$NEXT_URL")
+
+  # Header (derived from first matching app only)
+  if [ "$HEADER_WRITTEN" = false ]; then
+    echo "$RESP" | jq -r '
+      .value[]
+      | select(
+          (.keyCredentials | length > 0) or
+          (.passwordCredentials | length > 0)
+        )
+      | keys_unsorted
+      | @csv
+      ' | head -n 1 >> "$OUT" && HEADER_WRITTEN=true
+  fi
+
+  # Rows
+  echo "$RESP" | jq -r '
+    .value[]
+    | select(
+        (.keyCredentials | length > 0) or
+        (.passwordCredentials | length > 0)
+      )
+    | [.[]]
+    | map(
+        if type=="array" or type=="object"
+        then tostring
+        else .
+        end
+      )
+    | @csv
+  ' >> "$OUT"
+
+  NEXT_URL=$(echo "$RESP" | jq -r '."@odata.nextLink" // empty')
+done
+
+echo "Export complete: $OUT"
